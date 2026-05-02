@@ -1,337 +1,321 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════
-// AI.JS — Chess Academy AI Coach Engine
+// ai.js — Chess Academy AI Coach Engine
 // ─────────────────────────────────────────────────────────
-// Free-first approach (2026 best options):
+// Provider priority (configured at runtime or via Settings):
 //
-//  TIER 1 — Free w/ API key (recommended):
-//   • Google Gemini 2.0 Flash (generous free tier, fast)
-//     https://aistudio.google.com/app/apikey
-//   • OpenRouter free models (meta-llama/llama-3.3-70b-instruct:free)
-//     https://openrouter.ai/  → Create account → API Keys
-//   • Groq (llama-3.3-70b, very fast free tier)
-//     https://console.groq.com/
+//  "proxy"      → Anthropic Claude via PROXY_URL (best quality)
+//  "openrouter" → Free Llama 3.3 70B via openrouter.ai
+//  "gemini"     → Google Gemini 2.0 Flash (generous free tier)
+//  "groq"       → Groq Llama 3.3 70B (ultra-fast free tier)
+//  "local"      → Smart offline fallback (no key required)
 //
-//  TIER 2 — Self-hosted proxy (private API key):
-//   • Set PROXY_URL in proxy.js to your Cloudflare Worker / Vercel endpoint
-//   • Use claude-sonnet-4-20250514 via Anthropic for best chess coaching
-//
-//  TIER 3 — Smart local fallback (always works, no key needed):
-//   • Rule-based responses built from game data, weaknesses, etc.
-//   • Covers 80% of common coaching questions reliably
-//
-// Configuration: Set AI_CONFIG below or call AI.configure({...}) at runtime.
+// Setup: call AI.configure({provider, openrouterKey, …}) or
+// point the user to the in-app AI Setup modal.
 // ═══════════════════════════════════════════════════════════
 
 import { Coach } from "./coach.js";
 import { State }  from "./state.js";
 import { PROXY_URL, AI_MODEL } from "./proxy.js";
 
-// ── Runtime configuration (editable by user via Settings) ──
+// ── Configuration ────────────────────────────────────────────
 export const AI_CONFIG = {
-  // --- Preferred provider (try in order) ---
-  // "proxy"    → uses PROXY_URL from proxy.js (Anthropic / any Claude model)
-  // "openrouter" → free tier via OpenRouter (requires OPENROUTER_KEY)
-  // "gemini"   → Google Gemini free tier (requires GEMINI_KEY)
-  // "groq"     → Groq free tier (requires GROQ_KEY)
-  // "local"    → always use smart local fallback (no key needed)
-  provider: "openrouter",
-
-  // --- API keys (store here at runtime OR inject from Settings UI) ---
-  openrouterKey: "",   // from localStorage if set
-  geminiKey:     "",
-  groqKey:       "",
-
-  // --- Model overrides ---
+  provider:        "openrouter",
+  openrouterKey:   "",
+  geminiKey:       "",
+  groqKey:         "",
   openrouterModel: "meta-llama/llama-3.3-70b-instruct:free",
   geminiModel:     "gemini-2.0-flash",
   groqModel:       "llama-3.3-70b-versatile",
-
-  // --- Rate limiting ---
-  maxPerMinute: 10,
-  _calls: [],
-
-  // --- Chat history storage key ---
-  storageKeyPrefix: "ai_chat_history_",
+  maxPerMinute:    10,
+  storageKeyPrefix:"ai_chat_history_",
+  _calls:          [],
 };
 
-// Load persisted keys from localStorage
-(function loadPersistedKeys() {
+// Restore persisted keys / provider choice from localStorage
+(function restoreConfig() {
+  const keys = {
+    ai_openrouter_key: "openrouterKey",
+    ai_gemini_key:     "geminiKey",
+    ai_groq_key:       "groqKey",
+    ai_provider:       "provider",
+  };
   try {
-    const or = localStorage.getItem("ai_openrouter_key");
-    const gm = localStorage.getItem("ai_gemini_key");
-    const gq = localStorage.getItem("ai_groq_key");
-    const pv = localStorage.getItem("ai_provider");
-    if (or) AI_CONFIG.openrouterKey = or;
-    if (gm) AI_CONFIG.geminiKey     = gm;
-    if (gq) AI_CONFIG.groqKey       = gq;
-    if (pv) AI_CONFIG.provider      = pv;
-  } catch {}
+    for (const [lsKey, cfgKey] of Object.entries(keys)) {
+      const v = localStorage.getItem(lsKey);
+      if (v) AI_CONFIG[cfgKey] = v;
+    }
+  } catch { /* storage unavailable */ }
 })();
 
-// ── Rate limiter ────────────────────────────────────────────
+// ── Rate limiter ─────────────────────────────────────────────
 function checkRateLimit() {
   const now = Date.now();
-  AI_CONFIG._calls = AI_CONFIG._calls.filter(t => now - t < 60000);
+  AI_CONFIG._calls = AI_CONFIG._calls.filter(t => now - t < 60_000);
   if (AI_CONFIG._calls.length >= AI_CONFIG.maxPerMinute) return false;
   AI_CONFIG._calls.push(now);
   return true;
 }
 
-// ── Build rich system prompt from current user state ────────
+// ── System-prompt builder ────────────────────────────────────
 export function buildSystemPrompt() {
-  const { profile: p, games, ratingHistory, trainingFocus, coachFeedback, streak, platformRatings } = State.get();
+  const st = State.get();
+  const { profile: p, games, ratingHistory: rh, trainingFocus,
+          coachFeedback, streak, platformRatings } = st;
 
-  const totalGames = games.length;
-  const wins       = games.filter(g => g.result === "win").length;
-  const losses     = games.filter(g => g.result === "loss").length;
-  const draws      = games.filter(g => g.result === "draw").length;
-  const winRate    = totalGames ? Math.round((wins / totalGames) * 100) : 0;
+  // ── Stats summary ────────────────────────────────────────
+  const total    = games.length || 1;
+  const wins     = games.filter(g => g.result === "win").length;
+  const losses   = games.filter(g => g.result === "loss").length;
+  const draws    = games.filter(g => g.result === "draw").length;
+  const winRate  = Math.round((wins / total) * 100);
+  const avgAcc   = Math.round(games.reduce((s, g) => s + (g.accuracy ?? 80), 0) / total);
+  const avgBlund = (games.reduce((s, g) => s + (g.blunders ?? 0), 0) / total).toFixed(1);
 
-  const avgAcc     = totalGames
-    ? Math.round(games.reduce((s, g) => s + (g.accuracy || 80), 0) / totalGames)
-    : null;
-  const avgBlunders = totalGames
-    ? (games.reduce((s, g) => s + (g.blunders || 0), 0) / totalGames).toFixed(1)
-    : null;
-
+  // ── Recent games (last 5) ────────────────────────────────
   const recentGames = games.slice(0, 5).map((g, i) => {
-    const acc   = g.accuracy != null ? `${g.accuracy}% acc` : "no acc data";
-    const delta = g.delta ? ` (${g.delta} rating)` : "";
-    return `  ${i + 1}. ${g.result.toUpperCase()} vs ${g.opp} (${g.oppRating || "?"})${delta} — ${g.opening} — ${acc} — ${g.moves} moves`;
-  }).join("\n") || "  No recent games synced yet.";
+    const acc   = g.accuracy != null ? `${g.accuracy}% acc` : "no acc";
+    const delta = g.delta ? ` (${g.delta > 0 ? "+" : ""}${g.delta} pts)` : "";
+    return `  ${i + 1}. ${g.result.toUpperCase()} vs ${g.opp} (${g.oppRating ?? "?"})`
+         + `${delta} — ${g.opening} — ${acc} — ${g.moves}mv`;
+  }).join("\n") || "  No games synced yet.";
 
-  const weaknesses = Coach.analyzeWeaknesses(games)
-    .map(w => `  • ${w.label}: ${w.detail}`).join("\n") || "  • Not enough games to determine weaknesses yet.";
-
-  const ccRatings = platformRatings?.chesscom
-    ? Object.entries(platformRatings.chesscom).filter(([, v]) => v).map(([k, v]) => `Chess.com ${k}: ${v}`).join(", ")
-    : null;
-  const liRatings = platformRatings?.lichess
-    ? Object.entries(platformRatings.lichess).filter(([, v]) => v).map(([k, v]) => `Lichess ${k}: ${v}`).join(", ")
-    : null;
-  const ratingBreakdown = [ccRatings, liRatings].filter(Boolean).join(" | ") || "No platform ratings fetched yet.";
-
-  const ratingTrend = ratingHistory.length >= 2
-    ? (() => {
-        const first = ratingHistory[0].rating;
-        const last  = ratingHistory[ratingHistory.length - 1].rating;
-        const diff  = last - first;
-        return `${diff >= 0 ? "+" : ""}${diff} over ${ratingHistory.length} months (${first} → ${last})`;
-      })()
-    : "Not enough history.";
-
-  const focus      = trainingFocus.join(", ") || "Not specified";
-  const coachNotes = coachFeedback.slice(0, 3)
-    .map(f => `  [${f.category}] ${f.comment.slice(0, 120)}`).join("\n") || "  None.";
-
-  // Opening analysis — most played
-  const openingCounts = {};
-  games.forEach(g => { openingCounts[g.opening] = (openingCounts[g.opening] || 0) + 1; });
-  const topOpenings = Object.entries(openingCounts)
+  // ── Top openings ──────────────────────────────────────────
+  const opCounts = {};
+  games.forEach(g => { opCounts[g.opening] = (opCounts[g.opening] || 0) + 1; });
+  const topOpenings = Object.entries(opCounts)
     .sort((a, b) => b[1] - a[1]).slice(0, 3)
-    .map(([name, n]) => `${name} (${n}x)`).join(", ") || "Unknown";
+    .map(([name, n]) => `${name} (${n}×)`).join(", ") || "Unknown";
 
-  return `You are an elite chess coach named "Coach Anand" (inspired by Viswanathan Anand's teaching style) working one-on-one with a student. You are approximately 2200-2400 Elo strength.
+  // ── Rating breakdown by platform ─────────────────────────
+  const ccStr = platformRatings?.chesscom
+    ? Object.entries(platformRatings.chesscom).filter(([, v]) => v)
+        .map(([k, v]) => `Chess.com ${k}: ${v}`).join(", ")
+    : null;
+  const liStr = platformRatings?.lichess
+    ? Object.entries(platformRatings.lichess).filter(([, v]) => v)
+        .map(([k, v]) => `Lichess ${k}: ${v}`).join(", ")
+    : null;
+  const ratingBreakdown = [ccStr, liStr].filter(Boolean).join(" | ") || "No platform ratings yet.";
+
+  // ── Rating trend ──────────────────────────────────────────
+  const ratingTrend = rh.length >= 2
+    ? (() => {
+        const diff = rh.at(-1).rating - rh[0].rating;
+        return `${diff >= 0 ? "+" : ""}${diff} over ${rh.length} months (${rh[0].rating} → ${rh.at(-1).rating})`;
+      })()
+    : "Insufficient history.";
+
+  // ── Weaknesses + coach notes ──────────────────────────────
+  const weaknesses = Coach.analyzeWeaknesses(games)
+    .map(w => `  • ${w.label}: ${w.detail}`).join("\n")
+    || "  • Not enough games to determine weaknesses yet.";
+
+  const coachNotes = coachFeedback.slice(0, 3)
+    .map(f => `  [${f.category}] ${f.comment.slice(0, 120)}`).join("\n")
+    || "  None.";
+
+  // ── Coaching language level ───────────────────────────────
+  const levelHint = p.rating < 1200 ? "beginner — use simple terms and reassuring language"
+    : p.rating < 1600                ? "intermediate — introduce strategic concepts gradually"
+    : p.rating < 1900                ? "advanced — discuss positional subtleties freely"
+    :                                  "expert — speak at a high theoretical level";
+
+  return `You are "Coach Anand", an elite personal chess coach (≈2200–2400 Elo, inspired by Viswanathan Anand's teaching philosophy).
 
 ═══ STUDENT PROFILE ═══
 Name: ${p.fullName || "Student"}
 Location: ${p.location || "India"}
 Category: ${p.category || "Club Player"}
-Overall Rating: ${p.rating}
+Overall Rating: ${p.rating}  |  Streak: ${streak} day(s)
 Rating Breakdown: ${ratingBreakdown}
 Rating Trend: ${ratingTrend}
-Training Streak: ${streak} day(s)
-Chess.com: ${p.chesscom || "not linked"}
-Lichess: ${p.lichess || "not linked"}
+Chess.com: ${p.chesscom || "not linked"}  |  Lichess: ${p.lichess || "not linked"}
 
-═══ RECENT PERFORMANCE (last ${totalGames} games) ═══
+═══ RECENT PERFORMANCE (last ${games.length} games) ═══
 W/L/D: ${wins}/${losses}/${draws} (${winRate}% win rate)
-Avg Accuracy: ${avgAcc != null ? avgAcc + "%" : "N/A"}
-Avg Blunders/game: ${avgBlunders || "N/A"}
+Avg Accuracy: ${games.length ? avgAcc + "%" : "N/A"}  |  Avg Blunders/game: ${games.length ? avgBlund : "N/A"}
 Top Openings: ${topOpenings}
-
-Recent Games:
 ${recentGames}
 
 ═══ IDENTIFIED WEAKNESSES ═══
 ${weaknesses}
 
 ═══ TRAINING FOCUS ═══
-${focus}
+${trainingFocus.join(", ") || "Not specified"}
 
-═══ COACH NOTES ON FILE ═══
+═══ COACH NOTES ═══
 ${coachNotes}
 
-═══ YOUR COACHING APPROACH ═══
-1. PERSONALIZE everything to this specific student's rating, games, and weaknesses above.
-2. Be PRACTICAL — give concrete moves, positions, opening lines, specific exercises.
-3. Use PROPER CHESS NOTATION (e.g., 1.e4 e5 2.Nf3 Nc6) when discussing positions.
+═══ COACHING DIRECTIVES ═══
+1. PERSONALISE every response to this student's rating, games, and weaknesses.
+2. Be PRACTICAL — give concrete moves, opening lines, specific drills.
+3. Use PROPER NOTATION (e.g. 1.e4 e5 2.Nf3 Nc6) when discussing positions.
 4. Be ENCOURAGING but HONEST — celebrate wins, address losses constructively.
-5. ADAPT your language to their level: ${p.rating < 1200 ? "beginner — use simple terms" : p.rating < 1600 ? "intermediate — introduce strategy concepts" : p.rating < 1900 ? "advanced — discuss positional subtleties" : "expert — speak at high level"}.
-6. Give SPECIFIC TRAINING RECOMMENDATIONS: books, puzzle types, time controls, study methods.
-7. When analyzing games, focus on the CRITICAL MOMENT (turning point) not every move.
-8. Use the SOCRATIC METHOD occasionally — ask what they were thinking in critical positions.
-9. Keep responses CONCISE and ACTIONABLE — 3-6 sentences unless a detailed explanation is needed.
-10. Always end with ONE clear next action the student should take today.
+5. MATCH your language to their level: ${levelHint}.
+6. Keep responses CONCISE and ACTIONABLE — 3–6 sentences, unless depth is needed.
+7. End with ONE clear next action the student should take today.
+8. Never fabricate game moves. If you lack data, say so and give general guidance.
 
-Famous training resources you may recommend:
-- Puzzles: Lichess puzzles (lichess.org/puzzles), Chess.com puzzles
-- Books: "Silman's Complete Endgame Course", "How to Reassess Your Chess", "Chess Fundamentals" (Capablanca)
-- Video: Chessable courses, Daniel Naroditsky's "Speed Run" on Twitch/YouTube
-- Tools: Stockfish analysis, Lichess study feature
-
-IMPORTANT: Never fabricate game moves or positions you haven't been given. If asked about a specific game, use only the data provided in the student's game history above. If you don't have enough data, say so honestly and give general guidance.`;
+Recommended resources: Lichess puzzles & studies, Chess.com lessons, Silman's Endgame Course, Naroditsky's Speed Run, Chessable courses, Stockfish analysis.`;
 }
 
-// ── Smart local fallback responses ──────────────────────────
-const LOCAL_RESPONSES = {
-  opening: (p, games, weaknesses) => {
-    const openingCounts = {};
-    games.forEach(g => { openingCounts[g.opening] = (openingCounts[g.opening] || 0) + 1; });
-    const top = Object.entries(openingCounts).sort((a, b) => b[1] - a[1])[0];
+// ── Local fallback response library ─────────────────────────
+// Each handler receives (profile, games, weaknesses, streak) and returns a string.
+const LOCAL_HANDLERS = {
+  opening(p, games, weaknesses) {
+    const opCount = {};
+    games.forEach(g => { opCount[g.opening] = (opCount[g.opening] || 0) + 1; });
+    const top  = Object.entries(opCount).sort((a, b) => b[1] - a[1])[0];
     const weak = weaknesses.find(w => w.label?.toLowerCase().includes("opening"));
-    return [
-      `${p.fullName}, let's talk openings! Your most-played is **${top ? top[0] : "a variety of openings"}**.`,
-      weak ? `I notice ${weak.detail} — this is worth addressing directly.` : "",
-      p.rating < 1400
-        ? `At your rating, focus on these principles: control the center with pawns (1.e4 or 1.d4), develop your knights before bishops, castle early for king safety, and don't move the same piece twice unless necessary.`
-        : p.rating < 1700
-        ? `Build a small but solid repertoire: 1-2 openings as White, 1 solid response to e4 and d4. Study the first 10-12 moves deeply. Master the IDEAS behind each opening, not just memorizing moves.`
-        : `At ${p.rating}, your opening prep should reach move 15-20 in your main lines. Study theoretical novelties and understand transpositions. Use Chessable for spaced-repetition opening study.`,
-      `**Action today:** Pick ONE opening and study its core ideas for 20 minutes on Lichess. Focus on understanding, not memorization.`,
-    ].filter(Boolean).join(" ");
-  },
-
-  endgame: (p, games) => {
-    const essentials = p.rating < 1400
-      ? "king + queen vs king, king + rook vs king, and basic king + pawn vs king positions"
+    const advice = p.rating < 1400
+      ? "Master the principles: central pawns, quick development, early castling — don't memorise lines yet."
       : p.rating < 1700
-      ? "all basic pawn endgames, rook endgames (Lucena and Philidor positions), and bishop vs knight endings"
-      : "rook + pawn vs rook, complex pawn structures, and king activity in the endgame";
+      ? "Build a tight repertoire: 1–2 openings as White, solid answers to 1.e4 and 1.d4. Study the IDEAS, not move sequences."
+      : `At ${p.rating}, your prep should reach move 15–20. Use Chessable for spaced-repetition opening study.`;
     return [
-      `Endgame mastery is where ratings grow fastest — games are won and lost here! For your current level (${p.rating}), master ${essentials}.`,
-      `The most important principle: **Activate your king immediately** in the endgame. Most club players keep their king passive and it costs them half-points.`,
-      `**Specific drill:** Set up a K+P vs K position and practice converting with the stronger side, then defending with the weaker side. Do this 10 times a day for a week.`,
-      `Book recommendation: **"Silman's Complete Endgame Course"** — organized by rating level, so jump straight to your chapter. This alone can gain you 50-100 rating points.`,
-    ].join(" ");
-  },
-
-  tactics: (p, games) => {
-    const avgBlunders = games.length
-      ? (games.reduce((s, g) => s + (g.blunders || 0), 0) / games.length).toFixed(1) : "unknown";
-    return [
-      `Tactics are the foundation of chess — everything else builds on them! You're averaging **${avgBlunders} blunders/game**, which tells me there's real rating to gain here.`,
-      `At ${p.rating}, focus on these patterns in order: **forks, pins, skewers, discovered attacks, back-rank weaknesses, and removing the defender**.`,
-      `**Proven training method (Zimin System):** Solve 5-10 puzzles daily at YOUR level — don't skip ahead. Quality beats quantity. Review wrong answers for 2 minutes each.`,
-      `Use Lichess Puzzles (free, excellent quality) and filter by theme to systematically cover each tactic type. Aim for 85%+ accuracy, not speed.`,
-      `**Action today:** Solve 10 Lichess puzzles. If you get one wrong, set up the position on a board and understand exactly why the solution works before moving on.`,
-    ].join(" ");
-  },
-
-  strategy: (p, games) => {
-    return [
-      `Strategy is about making plans. The fundamental question after every move: **"What is my opponent threatening? What is my plan?"**`,
-      p.rating < 1500
-        ? `At your level, master these concepts first: 1) Identify and attack weak pawns, 2) Place your pieces on their best squares (outposts for knights!), 3) Create and convert passed pawns.`
-        : `At ${p.rating}, study **prophylaxis** (preventing opponent's plans), **weak square complexes**, and **pawn structure transformations**. Nimzowitch's "My System" is the Bible for this.`,
-      `**Practical tip:** After each game, ask yourself: "What was the key strategic moment? Did I have a plan, or was I just reacting?" One honest analysis per day beats 10 blitz games.`,
-      `**Action today:** Review one of your recent losses. Find the move where you lost your advantage and ask: what should I have played instead, and why?`,
-    ].join(" ");
-  },
-
-  lastGame: (p, games) => {
-    if (!games.length) return `I don't have any synced games to analyze yet! Sync your Chess.com or Lichess account first, then ask me about a specific game.`;
-    const g = games[0];
-    const acc = g.accuracy != null ? `You played at **${g.accuracy}% accuracy**` : "Accuracy data wasn't available";
-    const blunders = g.blunders != null ? ` with **${g.blunders} blunder(s)**` : "";
-    const delta = g.delta ? ` (${g.delta} rating)` : "";
-    return [
-      `Let's look at your most recent game: **${g.result.toUpperCase()}** vs ${g.opp} (${g.oppRating || "?"})${delta} — ${g.opening}${blunders ? `. ${acc}${blunders}.` : "."}`,
-      g.result === "win"
-        ? `Good win! Even in victories, look for improvements. ${g.accuracy && g.accuracy < 88 ? `Your ${g.accuracy}% accuracy suggests there were missed opportunities — check where your evaluation dipped in Lichess analysis.` : "Solid game — keep the momentum going."}`
-        : g.result === "loss"
-        ? `A loss is a lesson in disguise. ${g.blunders ? `The ${g.blunders} blunder(s) likely decided the game — find those moments in Lichess analysis and understand WHY each blunder happened.` : "Analyze where you went from equal to losing — that transition point is the most instructive moment."}`
-        : `A draw can mean many things. Did you hold a worse position, or fail to convert a better one? Both are instructive for different reasons.`,
-      `**Action:** Open this game in Lichess/Chess.com analysis, find the moment your engine evaluation first dropped significantly, and spend 5 minutes understanding that position.`,
-      g.pgn ? `(PGN available — you can paste it into lichess.org/analysis for a full computer review)` : "",
+      `Your most-played opening is **${top?.[0] ?? "a variety of openings"}**.`,
+      weak ? `Note: ${weak.detail}` : "",
+      advice,
+      "**Action today:** Pick ONE opening and study its core ideas for 20 minutes on Lichess.",
     ].filter(Boolean).join(" ");
   },
 
-  puzzle: (p) => {
-    const puzzleRating = Math.max(800, p.rating - 100);
+  endgame(p) {
+    const essentials = p.rating < 1400
+      ? "K+Q vs K, K+R vs K, and K+P vs K positions"
+      : p.rating < 1700
+      ? "all basic pawn endings, Lucena & Philidor rook positions, and B vs N endings"
+      : "R+P vs R, complex pawn structures, and active king play";
     return [
-      `Here's your puzzle prescription for today! 🧩`,
-      `Go to **lichess.org/puzzles** right now. Your puzzle rating should be around **${puzzleRating}** — start there and let it calibrate.`,
-      `**Rules for effective puzzle training:**`,
-      `1️⃣ Don't use hints — struggle for at least 2 minutes before looking at the solution`,
-      `2️⃣ For every wrong answer, set up the position and replay it 3 times until it feels natural`,
-      `3️⃣ After 10 puzzles, review the ones you got wrong — pattern recognition builds through repetition`,
-      `The patterns you should focus on at ${p.rating}: ${p.rating < 1400 ? "forks, pins, and back-rank mates" : p.rating < 1700 ? "discovered attacks, interference, and zugzwang" : "deflection, overloading, and positional sacrifices"}.`,
-      `**Action: Solve 10 puzzles right now.** Track your puzzle streak — consistency beats marathon sessions.`,
+      `Endgame mastery is where ratings grow fastest. For ${p.rating}, master ${essentials}.`,
+      "**Key principle:** Activate your king immediately in the endgame — passive kings lose half-points.",
+      "**Drill:** K+P vs K — practise converting as the stronger side and defending as the weaker side, 10 times a day.",
+      "**Book:** *Silman's Complete Endgame Course* — jump straight to your rating chapter. Worth 50–100 points.",
+    ].join(" ");
+  },
+
+  tactics(p, games) {
+    const avgBlund = games.length
+      ? (games.reduce((s, g) => s + (g.blunders ?? 0), 0) / games.length).toFixed(1)
+      : "unknown";
+    const patterns = p.rating < 1400
+      ? "forks, pins, and back-rank mates"
+      : p.rating < 1700
+      ? "discovered attacks, interference, and zugzwang"
+      : "deflection, overloading, and positional sacrifices";
+    return [
+      `You average **${avgBlund} blunders/game** — real rating to gain here.`,
+      `Focus on these patterns for ${p.rating}: **${patterns}**.`,
+      "**Method:** 5–10 puzzles daily at YOUR rating on Lichess. Quality beats quantity. Review wrong answers for 2 min each.",
+      "**Action today:** Solve 10 Lichess puzzles. For every wrong answer, set up the position and replay until it feels natural.",
+    ].join(" ");
+  },
+
+  strategy(p) {
+    const advice = p.rating < 1500
+      ? "Identify and attack weak pawns, place pieces on optimal squares (knight outposts!), and create passed pawns."
+      : `Study **prophylaxis** (stopping opponent plans), **weak square complexes**, and pawn-structure transformations. Nimzovich's *My System* is essential.`;
+    return [
+      "The fundamental question after every move: **'What is my opponent threatening? What is my plan?'**",
+      advice,
+      "**Practice:** After each game ask yourself: 'Did I have a plan, or was I just reacting?' One honest analysis beats 10 blitz games.",
+      "**Action today:** Review one recent loss and find the move where you lost your advantage.",
+    ].join(" ");
+  },
+
+  lastGame(p, games) {
+    if (!games.length) return "No synced games to analyse yet. Sync your Chess.com or Lichess account first, then ask me about a specific game.";
+    const g      = games[0];
+    const acc    = g.accuracy != null ? `**${g.accuracy}% accuracy**` : "no accuracy data";
+    const blund  = g.blunders  != null ? ` with **${g.blunders} blunder(s)**` : "";
+    const delta  = g.delta ? ` (${g.delta > 0 ? "+" : ""}${g.delta} pts)` : "";
+    const verdict = g.result === "win"
+      ? (g.accuracy && g.accuracy < 88
+          ? `Good win! Your ${g.accuracy}% accuracy suggests missed opportunities — check where evaluation dipped.`
+          : "Solid win — keep the momentum.")
+      : g.result === "loss"
+      ? (g.blunders
+          ? `A loss with ${g.blunders} blunder(s) — find those moments in analysis and understand WHY each happened.`
+          : "Find where you went from equal to losing — that transition is the most instructive moment.")
+      : "A draw can mean many things: did you hold a worse position, or fail to convert a better one?";
+    return [
+      `Last game: **${g.result.toUpperCase()}** vs ${g.opp} (${g.oppRating ?? "?"})${delta} — ${g.opening}${blund ? `. ${acc}${blund}.` : "."}`,
+      verdict,
+      "**Action:** Open this game in Lichess/Chess.com analysis, find the first significant evaluation drop, and spend 5 minutes on that position.",
+    ].filter(Boolean).join(" ");
+  },
+
+  puzzle(p) {
+    const pr = Math.max(800, p.rating - 100);
+    return [
+      `Go to **lichess.org/puzzles** — your starting puzzle rating should be around **${pr}**.`,
+      "**Rules for effective puzzle training:**",
+      "1️⃣ No hints — struggle for 2 minutes before checking the solution.",
+      "2️⃣ Every wrong answer: replay the position 3× until it feels natural.",
+      "3️⃣ After 10 puzzles, review mistakes — pattern recognition compounds.",
+      "**Action: Solve 10 puzzles right now.** Consistency beats marathon sessions.",
     ].join("\n");
   },
 
-  motivation: (p, games, streak) => {
-    const wins = games.filter(g => g.result === "win").length;
+  motivation(p, games, _, streak) {
+    const wins    = games.filter(g => g.result === "win").length;
     const winRate = games.length ? Math.round(wins / games.length * 100) : 0;
+    const level   = p.rating < 1200 ? "just starting your chess journey — every game teaches something new"
+      : p.rating < 1600              ? "building solid club-level skills — the breakthrough to 1600+ is close"
+      : p.rating < 1900              ? "in the exciting zone where chess becomes deeply strategic"
+      :                                "at an advanced level that few players ever reach";
     return [
-      `${p.fullName}, you're on a **${streak}-day training streak** — that's what separates improvers from stagnators. Most players never build consistency like this.`,
+      `${p.fullName}, you're on a **${streak}-day training streak** — that's what separates improvers from stagnators.`,
       games.length
-        ? `Your ${winRate}% win rate across ${games.length} games shows ${winRate >= 55 ? "you're in excellent form — capitalize on it!" : winRate >= 45 ? "steady competitive play — a few key improvements will push you over 55%+" : "some inconsistency — let's find the pattern in your losses."}`
-        : `Start syncing your games so I can give you truly personalized coaching based on your actual play.`,
-      `At ${p.rating}, you are ${p.rating < 1200 ? "just starting your chess journey — every game teaches something new" : p.rating < 1600 ? "building solid club-level skills — the breakthrough to 1600+ is close" : p.rating < 1900 ? "in the exciting zone where chess becomes deeply strategic — enjoy the depth you're discovering" : "at an advanced level that few players reach — take pride in your work"}.`,
-      `**Remember:** Magnus Carlsen played 10,000+ games before reaching his peak. You're investing in a skill that compounds. Keep going! 💪`,
+        ? `Your ${winRate}% win rate across ${games.length} games shows ${winRate >= 55 ? "excellent form — capitalise on it!" : winRate >= 45 ? "steady play — a few key fixes will push you over 55%+" : "some inconsistency — let's find the pattern in your losses."}`
+        : "Start syncing your games so I can give you truly personalised coaching.",
+      `At ${p.rating}, you're ${level}.`,
+      "**Remember:** Magnus Carlsen played 10,000+ games before his peak. Every game you play compounds. Keep going! 💪",
     ].join(" ");
   },
 
-  generic: (p, games, weaknesses) => {
-    const weak0 = weaknesses[0];
-    const g0 = games[0];
+  generic(p, games, weaknesses) {
+    const top = weaknesses[0];
+    const g0  = games[0];
     return [
-      `Great question! Let me give you personalized advice based on your current profile.`,
-      `At ${p.rating}, your most impactful improvement area right now is: ${weak0 ? `**${weak0.label}** — ${weak0.detail}` : "building consistency by analyzing your games after every loss"}.`,
-      g0 ? `Your recent ${g0.result} vs ${g0.opp} in the ${g0.opening} is worth studying — look at the moves around move 20+ where the game was decided.` : "",
-      `**My top recommendation for you today:** Spend 15 minutes on tactics puzzles + 10 minutes analyzing one recent game. This 25-minute routine compounds faster than blitz games alone.`,
+      `At ${p.rating}, your highest-impact improvement area is: ${top ? `**${top.label}** — ${top.detail}` : "building consistency by analysing your losses"}.`,
+      g0 ? `Your recent ${g0.result} vs ${g0.opp} in the ${g0.opening} is worth revisiting — look at the critical moment around move 20+.` : "",
+      "**My top recommendation:** 15 min of tactics puzzles + 10 min analysing one recent game. This 25-min routine compounds faster than blitz alone.",
     ].filter(Boolean).join(" ");
   },
 };
 
-// ── Detect intent from user message ─────────────────────────
+// ── Intent detection ─────────────────────────────────────────
+const INTENT_PATTERNS = [
+  [/opening|repertoire|sicilian|french|caro|king.s indian|london|english|ruy lopez|italian/i, "opening"],
+  [/endgame|rook end|pawn end|king.pawn|promot/i, "endgame"],
+  [/tactic|puzzle|fork|pin|skewer|mate|combination|blunder|hanging/i, "tactics"],
+  [/strateg|plan|weak pawn|outpost|positional|prophylaxis/i, "strategy"],
+  [/last game|recent game|my game|analyz|review/i, "lastGame"],
+  [/give me a puzzle|puzzle me|train me|daily puzzle/i, "puzzle"],
+  [/motivat|discourage|los(ing streak)|frustrated|give up|difficult/i, "motivation"],
+];
+
 function detectIntent(msg) {
-  const m = msg.toLowerCase();
-  if (/opening|repertoire|sicilian|french|caro|king.s indian|london|english|ruy lopez|italian/i.test(m)) return "opening";
-  if (/endgame|rook ending|pawn ending|king.pawn|promote|promotion/i.test(m)) return "endgame";
-  if (/tactic|puzzle|fork|pin|skewer|mate|combination|blunder|hanging/i.test(m)) return "tactics";
-  if (/strategy|plan|weak|pawn structure|outpost|positional|prophylaxis/i.test(m)) return "strategy";
-  if (/last game|recent game|my game|analyze|review/i.test(m)) return "lastGame";
-  if (/give me a puzzle|puzzle me|train me|daily puzzle/i.test(m)) return "puzzle";
-  if (/motivat|discourage|lose|losing streak|frustrated|give up|hard|difficult/i.test(m)) return "motivation";
+  for (const [re, intent] of INTENT_PATTERNS) {
+    if (re.test(msg)) return intent;
+  }
   return "generic";
 }
 
-// ── Smart local responder ────────────────────────────────────
+// ── Smart local responder ─────────────────────────────────────
 function localFallback(userMsg) {
   const { profile: p, games, streak } = State.get();
   const weaknesses = Coach.analyzeWeaknesses(games);
-  const intent = detectIntent(userMsg);
-
-  const handlers = {
-    opening:    () => LOCAL_RESPONSES.opening(p, games, weaknesses),
-    endgame:    () => LOCAL_RESPONSES.endgame(p, games),
-    tactics:    () => LOCAL_RESPONSES.tactics(p, games),
-    strategy:   () => LOCAL_RESPONSES.strategy(p, games),
-    lastGame:   () => LOCAL_RESPONSES.lastGame(p, games),
-    puzzle:     () => LOCAL_RESPONSES.puzzle(p),
-    motivation: () => LOCAL_RESPONSES.motivation(p, games, streak),
-    generic:    () => LOCAL_RESPONSES.generic(p, games, weaknesses),
-  };
-
-  const response = handlers[intent]?.() || handlers.generic();
-  return `${response}\n\n_⚠️ AI Coach is running in offline mode. [Set up a free API key](#setup-ai) for full AI-powered coaching._`;
+  const intent     = detectIntent(userMsg);
+  const handler    = LOCAL_HANDLERS[intent] ?? LOCAL_HANDLERS.generic;
+  const body       = handler(p, games, weaknesses, streak);
+  return `${body}\n\n_⚠️ AI Coach is in offline mode. [Set up a free API key](#setup-ai) for full AI-powered coaching._`;
 }
 
-// ── Provider: Anthropic proxy ────────────────────────────────
+// ── Provider implementations ─────────────────────────────────
+
 async function queryProxy(messages, systemPrompt) {
   if (!PROXY_URL) throw new Error("No PROXY_URL configured");
   const res = await fetch(PROXY_URL, {
@@ -349,7 +333,6 @@ async function queryProxy(messages, systemPrompt) {
   return data.content?.map(b => b.text || "").join("") || "";
 }
 
-// ── Provider: OpenRouter (free models) ──────────────────────
 async function queryOpenRouter(messages, systemPrompt) {
   const key = AI_CONFIG.openrouterKey;
   if (!key) throw new Error("No OpenRouter key");
@@ -364,10 +347,7 @@ async function queryOpenRouter(messages, systemPrompt) {
     body: JSON.stringify({
       model: AI_CONFIG.openrouterModel,
       max_tokens: 800,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
+      messages: [{ role: "system", content: systemPrompt }, ...messages],
     }),
   });
   if (!res.ok) {
@@ -378,14 +358,9 @@ async function queryOpenRouter(messages, systemPrompt) {
   return data.choices?.[0]?.message?.content || "";
 }
 
-// ── Provider: Google Gemini ──────────────────────────────────
 async function queryGemini(messages, systemPrompt) {
   const key = AI_CONFIG.geminiKey;
   if (!key) throw new Error("No Gemini key");
-  const contents = messages.map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${AI_CONFIG.geminiModel}:generateContent?key=${key}`,
     {
@@ -393,7 +368,10 @@ async function queryGemini(messages, systemPrompt) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
-        contents,
+        contents: messages.map(m => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
         generationConfig: { maxOutputTokens: 800 },
       }),
     }
@@ -403,7 +381,6 @@ async function queryGemini(messages, systemPrompt) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-// ── Provider: Groq (llama, very fast) ───────────────────────
 async function queryGroq(messages, systemPrompt) {
   const key = AI_CONFIG.groqKey;
   if (!key) throw new Error("No Groq key");
@@ -416,10 +393,7 @@ async function queryGroq(messages, systemPrompt) {
     body: JSON.stringify({
       model: AI_CONFIG.groqModel,
       max_tokens: 800,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
+      messages: [{ role: "system", content: systemPrompt }, ...messages],
     }),
   });
   if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
@@ -427,28 +401,30 @@ async function queryGroq(messages, systemPrompt) {
   return data.choices?.[0]?.message?.content || "";
 }
 
-// ── Chat history persistence ─────────────────────────────────
+// ── Provider registry — makes adding new providers trivial ───
+const PROVIDERS = {
+  proxy:       cfg => PROXY_URL                && (() => (msgs, sys) => queryProxy(msgs, sys)),
+  openrouter:  cfg => cfg.openrouterKey        && (() => (msgs, sys) => queryOpenRouter(msgs, sys)),
+  gemini:      cfg => cfg.geminiKey            && (() => (msgs, sys) => queryGemini(msgs, sys)),
+  groq:        cfg => cfg.groqKey              && (() => (msgs, sys) => queryGroq(msgs, sys)),
+};
+
+// ── Chat history persistence ──────────────────────────────────
 export const ChatHistory = {
   _key() {
     try {
-      const id = State.get().currentUserId || "default";
-      return `${AI_CONFIG.storageKeyPrefix}${id}`;
+      return `${AI_CONFIG.storageKeyPrefix}${State.get().currentUserId || "default"}`;
     } catch { return `${AI_CONFIG.storageKeyPrefix}default`; }
   },
 
   load() {
-    try {
-      const raw = localStorage.getItem(this._key());
-      return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(this._key()) || "[]"); }
+    catch { return []; }
   },
 
   save(history) {
-    try {
-      // Keep last 40 messages to avoid unbounded growth
-      const trimmed = history.slice(-40);
-      localStorage.setItem(this._key(), JSON.stringify(trimmed));
-    } catch {}
+    try { localStorage.setItem(this._key(), JSON.stringify(history.slice(-40))); }
+    catch { /* quota exceeded / private mode */ }
   },
 
   clear() {
@@ -456,77 +432,78 @@ export const ChatHistory = {
   },
 
   export(history) {
-    const lines = history.map(h =>
-      `[${h.role.toUpperCase()}]\n${h.content}\n`
-    ).join("\n---\n\n");
-    const blob = new Blob([lines], { type: "text/plain" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `chess-coach-chat-${new Date().toISOString().slice(0, 10)}.txt`;
+    const text = history
+      .map(h => `[${h.role.toUpperCase()}]\n${h.content}`)
+      .join("\n\n---\n\n");
+    const a = Object.assign(document.createElement("a"), {
+      href:     URL.createObjectURL(new Blob([text], { type: "text/plain" })),
+      download: `chess-coach-chat-${new Date().toISOString().slice(0, 10)}.txt`,
+    });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   },
 };
 
-// ── Public API ───────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────
 export const AI = {
   configure(opts = {}) {
     Object.assign(AI_CONFIG, opts);
+    const persist = {
+      ai_openrouter_key: opts.openrouterKey,
+      ai_gemini_key:     opts.geminiKey,
+      ai_groq_key:       opts.groqKey,
+      ai_provider:       opts.provider,
+    };
     try {
-      if (opts.openrouterKey) localStorage.setItem("ai_openrouter_key", opts.openrouterKey);
-      if (opts.geminiKey)     localStorage.setItem("ai_gemini_key",     opts.geminiKey);
-      if (opts.groqKey)       localStorage.setItem("ai_groq_key",       opts.groqKey);
-      if (opts.provider)      localStorage.setItem("ai_provider",       opts.provider);
+      for (const [k, v] of Object.entries(persist)) {
+        if (v != null) localStorage.setItem(k, v);
+      }
     } catch {}
   },
 
   hasApiKey() {
+    const { provider: pv } = AI_CONFIG;
     return !!(
-      (AI_CONFIG.provider === "proxy"       && PROXY_URL) ||
-      (AI_CONFIG.provider === "openrouter"  && AI_CONFIG.openrouterKey) ||
-      (AI_CONFIG.provider === "gemini"      && AI_CONFIG.geminiKey) ||
-      (AI_CONFIG.provider === "groq"        && AI_CONFIG.groqKey)
+      (pv === "proxy"       && PROXY_URL)              ||
+      (pv === "openrouter"  && AI_CONFIG.openrouterKey) ||
+      (pv === "gemini"      && AI_CONFIG.geminiKey)     ||
+      (pv === "groq"        && AI_CONFIG.groqKey)
     );
   },
 
   getProviderLabel() {
-    if (AI_CONFIG.provider === "proxy" && PROXY_URL) return "Anthropic (proxy)";
-    if (AI_CONFIG.provider === "openrouter" && AI_CONFIG.openrouterKey) return `OpenRouter (${AI_CONFIG.openrouterModel.split("/").pop()})`;
-    if (AI_CONFIG.provider === "gemini" && AI_CONFIG.geminiKey) return `Google Gemini`;
-    if (AI_CONFIG.provider === "groq" && AI_CONFIG.groqKey) return `Groq (${AI_CONFIG.groqModel})`;
-    return "Local (offline mode)";
+    const { provider: pv } = AI_CONFIG;
+    if (pv === "proxy"      && PROXY_URL)               return "Anthropic (proxy)";
+    if (pv === "openrouter" && AI_CONFIG.openrouterKey) return `OpenRouter · ${AI_CONFIG.openrouterModel.split("/").pop()}`;
+    if (pv === "gemini"     && AI_CONFIG.geminiKey)     return "Google Gemini Flash";
+    if (pv === "groq"       && AI_CONFIG.groqKey)       return `Groq · ${AI_CONFIG.groqModel}`;
+    return "Local (offline)";
   },
 
   async getResponse(userMsg, history = []) {
     if (!checkRateLimit()) {
-      return "⏳ You're sending messages too quickly! Please wait a moment before trying again.";
+      return "⏳ You're sending messages too quickly — please wait a moment before trying again.";
     }
 
     const systemPrompt = buildSystemPrompt();
-    const messages = history
-      .slice(-10)
-      .filter(h => h.content)
-      .map(h => ({ role: h.role, content: h.content }));
-    messages.push({ role: "user", content: userMsg });
+    const messages = [
+      ...history.slice(-10).filter(h => h.content).map(({ role, content }) => ({ role, content })),
+      { role: "user", content: userMsg },
+    ];
 
-    // Try providers in order
-    const providers = [
-      AI_CONFIG.provider === "proxy"       && PROXY_URL                 && (() => queryProxy(messages, systemPrompt)),
-      AI_CONFIG.provider === "openrouter"  && AI_CONFIG.openrouterKey   && (() => queryOpenRouter(messages, systemPrompt)),
-      AI_CONFIG.provider === "gemini"      && AI_CONFIG.geminiKey        && (() => queryGemini(messages, systemPrompt)),
-      AI_CONFIG.provider === "groq"        && AI_CONFIG.groqKey          && (() => queryGroq(messages, systemPrompt)),
-    ].filter(Boolean);
-
-    for (const attempt of providers) {
+    // Resolve the active provider function (if key is present)
+    const providerFn = PROVIDERS[AI_CONFIG.provider]?.(AI_CONFIG);
+    if (providerFn) {
       try {
-        const text = await attempt();
-        if (text && text.trim()) return text.trim();
+        const fn   = providerFn();
+        const text = (await fn(messages, systemPrompt))?.trim();
+        if (text) return text;
       } catch (err) {
-        console.warn("AI provider failed:", err.message);
+        console.warn(`[AI] Provider "${AI_CONFIG.provider}" failed:`, err.message);
       }
     }
 
-    // All providers failed or none configured → smart local fallback
+    // Graceful fallback to local responses
     return localFallback(userMsg);
   },
 };

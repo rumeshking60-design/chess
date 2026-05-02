@@ -187,6 +187,7 @@ body {
   background: var(--bg2);
   border-top: 1px solid var(--border);
   display: flex; align-items: center;
+  gap: 0;
   padding: 0 8px;
   padding-bottom: var(--safe-bottom);
   position: fixed;
@@ -198,14 +199,14 @@ body {
 }
 .nav-btn {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 8px 4px; border: none; background: transparent;
+  padding: 6px 2px; border: none; background: transparent;
   color: var(--muted); cursor: pointer; transition: color .15s;
   border-radius: var(--r); font-family: var(--font-body);
   position: relative;
 }
 .nav-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none;
   stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.nav-btn .nav-label { font-size: 9.5px; font-weight: 500; letter-spacing: .03em; }
+.nav-btn .nav-label { font-size: 9px; font-weight: 500; letter-spacing: .03em; }
 .nav-btn.active { color: var(--brand); }
 .nav-btn.active svg { stroke-width: 2.2; }
 .nav-badge {
@@ -685,7 +686,7 @@ svg.chart { width: 100%; height: 100px; overflow: visible; }
   padding: 10px 20px; border-radius: 24px;
   opacity: 0; transition: opacity .2s, transform .2s;
   pointer-events: none; white-space: nowrap;
-  z-index: 80; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  z-index: 100; box-shadow: 0 8px 32px rgba(0,0,0,.5);
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 
@@ -777,6 +778,231 @@ svg.chart { width: 100%; height: 100px; overflow: visible; }
 .empty-state-btn { margin-top: 16px; }
 /* Ensure roadmap-list has padding */
 #roadmap-list { padding: 4px 0; }
+
+/* ─── Notation Analysis Screen ───────────────────────────── */
+#screen-notation { padding-bottom: 32px; }
+
+/* Drop-zone */
+.na-drop-zone {
+  margin: 0 16px 10px;
+  border: 2px dashed var(--border2);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  background: var(--surface);
+  position: relative;
+}
+.na-drop-zone:hover, .na-drop-zone.na-drag-over {
+  border-color: var(--brand2);
+  background: var(--brand-bg);
+}
+.na-drop-zone-icon  { font-size: 26px; margin-bottom: 4px; }
+.na-drop-zone-label { font-size: 12px; color: var(--text2); }
+.na-drop-zone-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+#na-file-name       { font-size: 11px; color: var(--brand3); margin-top: 4px; min-height: 14px; }
+
+/* Textarea */
+.na-pgn-textarea {
+  width: 100%; min-height: 90px; max-height: 200px;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: var(--r); padding: 10px 12px;
+  color: var(--text); font-family: var(--font-mono); font-size: 12px;
+  outline: none; resize: vertical; transition: border-color .15s;
+  line-height: 1.6;
+}
+.na-pgn-textarea:focus { border-color: var(--brand2); }
+
+/* Action bar */
+.na-action-bar {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 0 16px; margin-bottom: 10px;
+}
+
+/* Headers */
+#na-headers { display: flex; flex-direction: column; gap: 3px; }
+.na-header-row { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
+.na-header-key { color: var(--muted); min-width: 72px; font-weight: 600; letter-spacing: .03em; flex-shrink: 0; }
+.na-header-val { color: var(--text); }
+
+/* Analysis panel layout */
+#na-analysis-panel { display: none; }
+.na-board-section {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 0 16px 10px;
+}
+.na-board-wrap {
+  position: relative; width: 100%;
+  border-radius: var(--r-lg); overflow: hidden;
+  aspect-ratio: 1;
+  background: #1a1a1a;
+  box-shadow: 0 4px 24px rgba(0,0,0,.5);
+}
+#na-board-canvas { width: 100%; height: 100%; display: block; }
+
+/* Eval bar (left side of board, absolute) */
+.na-eval-bar-wrap {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 18px; display: flex; flex-direction: column;
+  background: var(--surface); z-index: 2;
+  border-radius: var(--r-lg) 0 0 var(--r-lg);
+  overflow: hidden;
+}
+#na-board-canvas { position: absolute; left: 18px; top: 0; right: 0; bottom: 0; width: auto; height: auto; display: block; }
+#na-eval-fill {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: var(--text);
+  transition: height .5s cubic-bezier(.4,0,.2,1);
+  height: 50%;
+}
+
+/* Board status label */
+#na-board-status {
+  font-size: 12px; color: var(--text2); text-align: center;
+  font-weight: 500; padding: 4px 0;
+}
+
+/* Engine info row */
+.na-engine-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 10px; background: var(--surface);
+  border-radius: var(--r); border: 1px solid var(--border);
+  font-size: 12px;
+}
+.na-engine-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text2); }
+#na-eval-label { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--brand3); min-width: 42px; }
+#na-eval-best  { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+#na-eval-depth { font-size: 10px; color: var(--border2); }
+#na-engine-status { font-size: 10px; color: var(--muted); }
+
+/* Navigation controls */
+.na-nav-row {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 16px 6px;
+}
+.na-nav-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text2); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s; flex-shrink: 0;
+}
+.na-nav-btn:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
+.na-nav-btn:disabled { opacity: .35; cursor: not-allowed; }
+.na-nav-btn.play { background: var(--brand-bg); border-color: var(--brand2); color: var(--brand3); font-size: 12px; }
+#na-move-counter { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-left: auto; }
+
+/* Move list */
+#na-move-list {
+  display: flex; flex-wrap: wrap; gap: 2px 0;
+  max-height: 180px; overflow-y: auto; padding: 4px 0;
+}
+#na-move-list::-webkit-scrollbar { width: 3px; }
+#na-move-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.na-move-row { display: flex; align-items: center; gap: 2px; }
+.na-move-num { font-family: var(--font-mono); font-size: 11px; color: var(--muted); min-width: 26px; padding: 3px 2px 3px 0; text-align: right; }
+.na-move-chip {
+  padding: 3px 7px; border-radius: 5px;
+  font-family: var(--font-mono); font-size: 12px;
+  background: transparent; color: var(--text2);
+  border: 1px solid transparent;
+  cursor: pointer; transition: all .1s;
+}
+.na-move-chip:hover { background: var(--surface); color: var(--text); }
+.na-move-chip.na-active { background: var(--brand-bg); border-color: var(--brand2); color: var(--brand3); }
+.na-move-chip.na-corrected { color: var(--saffron); }
+.na-move-chip.na-corrected.na-active { background: var(--saffron-bg); border-color: rgba(245,166,35,.4); }
+.na-move-chip.na-illegal { color: var(--red); text-decoration: line-through; opacity: .7; cursor: not-allowed; }
+
+/* Error / OK banners */
+.na-ok-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border-radius: var(--r);
+  background: var(--brand-bg); border: 1px solid var(--brand2);
+  color: var(--brand3); font-size: 12px; font-weight: 500;
+}
+.na-error-card {
+  border-radius: var(--r); padding: 10px 12px; margin-bottom: 8px;
+  border: 1px solid var(--border);
+}
+.na-error-card:last-child { margin-bottom: 0; }
+.na-error-corrected { background: var(--saffron-bg); border-color: rgba(245,166,35,.3); }
+.na-error-bad       { background: var(--red-bg);     border-color: rgba(224,92,92,.3); }
+.na-err-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.na-err-loc      { font-size: 11px; color: var(--muted); }
+.na-err-original { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text); }
+.na-err-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 10px; margin-left: auto;
+}
+.na-err-badge.corrected { background: var(--saffron-bg); color: var(--saffron); border: 1px solid rgba(245,166,35,.4); }
+.na-err-badge.bad       { background: var(--red-bg);     color: var(--red);     border: 1px solid rgba(224,92,92,.4); }
+
+/* Suggestion buttons */
+.na-suggestions { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.na-suggestion-btn {
+  padding: 3px 10px; border-radius: 12px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--text2); font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.na-suggestion-btn:hover { background: var(--brand-bg); border-color: var(--brand2); color: var(--brand3); }
+
+/* PGN textarea wrapper */
+.na-pgn-wrap { margin: 0 16px 8px; }
+
+/* Fix 8: additional CSS */
+.avatar-btn:focus-visible { box-shadow: 0 0 0 3px var(--brand); }
+@media (max-width:360px) { #chart-labels span { font-size:8px; } }
+#na-move-list-wrap { position:relative; }
+#na-move-list-wrap::after { content:""; position:absolute; bottom:0; left:0; right:0; height:24px; background:linear-gradient(transparent, var(--bg2)); pointer-events:none; border-radius:0 0 var(--r) var(--r); }
+
+/* AI Coach bubble styles (from additions) */
+.assistant-bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px 16px 16px 16px;
+}
+.user-bubble {
+  background: var(--surface2, var(--brand-bg));
+  border: 1px solid var(--border2, var(--border));
+  border-radius: 16px 4px 16px 16px;
+  margin-left: auto;
+}
+.ai-avatar {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-bg, rgba(139,186,92,.15));
+  border-radius: 50%;
+  margin-top: 2px;
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ai-msg { animation: fadeSlideIn .2s ease; }
+.ai-bubble {
+  max-width: 82%;
+  padding: 10px 13px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text);
+}
+/* Quick action chips */
+.ai-quick-btn:hover {
+  border-color: var(--brand) !important;
+  background: var(--brand-bg) !important;
+  color: var(--text) !important;
+}
+#ai-quick-actions::-webkit-scrollbar { display: none; }
 </style>
 </head>
 <body>
@@ -1076,18 +1302,48 @@ svg.chart { width: 100%; height: 100px; overflow: visible; }
         <div class="section-title">AI Coach</div>
         <span class="api-badge live">Claude AI</span>
       </div>
-      <div class="card">
-        <div class="card-inner">
-          <div class="ai-chat-wrap" id="ai-chat-messages">
-            <div class="ai-msg">
-              <div class="ai-avatar">🤖</div>
-              <div class="ai-bubble">Hi! I can help you review openings, tactics, and recent games. What would you like to focus on today?</div>
-            </div>
+      <div class="card" style="display:flex;flex-direction:column;overflow:hidden">
+        <!-- 1. Provider badge -->
+        <div id="ai-provider-badge" style="text-align:center;padding:6px 16px 0"></div>
+
+        <!-- 2. Quick actions strip -->
+        <div id="ai-quick-actions" style="
+          display:flex;gap:8px;overflow-x:auto;padding:8px 16px;
+          scrollbar-width:none;-webkit-overflow-scrolling:touch;
+          border-bottom:1px solid var(--border)
+        "></div>
+
+        <!-- 3. Chat messages -->
+        <div id="ai-chat-messages" style="
+          flex:1;overflow-y:auto;padding:12px 16px;
+          display:flex;flex-direction:column;gap:10px;min-height:200px
+        ">
+          <div class="ai-msg">
+            <div class="ai-avatar">🤖</div>
+            <div class="ai-bubble assistant-bubble">Hi! I can help you review openings, tactics, and recent games. What would you like to focus on today?</div>
           </div>
         </div>
-        <div class="ai-input-wrap" style="padding:0 16px 16px">
-          <textarea class="ai-input" id="ai-input" placeholder="Ask about openings, tactics, your games…" rows="1" aria-label="Message AI coach"></textarea>
-          <button class="ai-send" id="ai-send-btn" aria-label="Send">→</button>
+
+        <!-- 4. Toolbar above input -->
+        <div style="display:flex;gap:8px;padding:6px 16px 0;justify-content:flex-end;align-items:center">
+          <button id="ai-pgn-btn" class="btn btn-ghost btn-sm" title="Send last game for analysis" style="font-size:11px">♟ Last Game</button>
+          <button id="ai-copy-btn" class="btn btn-ghost btn-sm" title="Copy last response" style="font-size:11px">⎘ Copy</button>
+          <button id="ai-export-btn" class="btn btn-ghost btn-sm" title="Export chat" style="font-size:11px">↓ Export</button>
+          <button id="ai-clear-btn" class="btn btn-ghost btn-sm" title="Clear chat" style="font-size:11px">🗑</button>
+        </div>
+
+        <!-- 5. Input row -->
+        <div style="display:flex;gap:8px;padding:10px 16px 16px;align-items:flex-end">
+          <textarea id="ai-input" rows="1" placeholder="Ask Coach Anand anything…"
+            style="flex:1;resize:none;min-height:40px;max-height:120px;padding:10px 12px;
+                   border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--border);
+                   color:var(--text);font-size:14px;font-family:inherit;line-height:1.4" aria-label="Message AI coach"></textarea>
+          <button id="ai-send-btn" class="btn btn-primary" style="height:40px;width:44px;padding:0;flex-shrink:0;font-size:18px">↑</button>
+        </div>
+
+        <!-- 6. Disclaimer -->
+        <div style="text-align:center;padding:0 16px 10px;font-size:10px;color:var(--muted)">
+          AI Coach gives general advice. Use engine analysis for precise move evaluation.
         </div>
       </div>
 
@@ -1249,6 +1505,117 @@ svg.chart { width: 100%; height: 100px; overflow: visible; }
       </div>
     </div>
 
+    <!-- ── NOTATION ANALYSIS ──────────────────────────── -->
+    <div id="screen-notation" class="screen">
+
+      <div class="section-head">
+        <div class="section-title">Notation Analysis</div>
+        <span class="pill pill-blue">PGN</span>
+      </div>
+
+      <!-- Drop zone / file upload -->
+      <div id="na-drop-zone" class="na-drop-zone" role="button" tabindex="0" aria-label="Upload PGN file">
+        <input type="file" id="na-file-input" accept=".pgn,.txt" style="display:none" aria-hidden="true">
+        <div class="na-drop-zone-icon">📂</div>
+        <div class="na-drop-zone-label">Drop a .pgn file here, or tap to browse</div>
+        <div class="na-drop-zone-sub">Supports standard PGN with headers, comments, and variations</div>
+        <div id="na-file-name"></div>
+      </div>
+
+      <!-- PGN text input -->
+      <div class="na-pgn-wrap">
+        <textarea id="na-pgn-textarea" class="na-pgn-textarea"
+          placeholder="Or paste PGN notation here…&#10;&#10;[Event &quot;London&quot;]&#10;[White &quot;Anderssen&quot;]&#10;&#10;1. e4 e5 2. f4 exf4 …"
+          aria-label="PGN notation input" spellcheck="false"></textarea>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="na-action-bar">
+        <button id="na-load-btn"   class="btn btn-primary btn-sm">▶ Analyse</button>
+        <button id="na-sample-btn" class="btn btn-secondary btn-sm">♟ Sample game</button>
+        <button id="na-clear-btn"  class="btn btn-ghost btn-sm">✕ Clear</button>
+      </div>
+
+      <div id="na-empty-state" style="text-align:center;padding:32px 20px;color:var(--muted)">
+        <div style="font-size:40px;margin-bottom:10px">♟</div>
+        <div style="font-size:13px;font-weight:600;color:var(--text2)">Paste a PGN to begin</div>
+        <div style="font-size:12px;margin-top:4px">Supports standard PGN, headers, comments, variations</div>
+      </div>
+
+      <!-- ── Analysis panel (hidden until PGN loaded) ── -->
+      <div id="na-analysis-panel">
+
+        <!-- Game headers -->
+        <div class="section-head" style="padding-top:4px">
+          <div class="section-title" style="font-size:16px">Game Info</div>
+        </div>
+        <div class="card card-inner" style="margin-bottom:10px">
+          <div id="na-headers"></div>
+        </div>
+
+        <!-- Board + eval bar -->
+        <div class="na-board-section">
+          <div class="na-board-wrap">
+            <!-- Eval bar -->
+            <div class="na-eval-bar-wrap" aria-label="Evaluation bar" title="Engine evaluation (white advantage = top)">
+              <div id="na-eval-fill"></div>
+              <span style="position:absolute;top:3px;left:50%;transform:translateX(-50%);font-size:8px;color:#000;font-weight:700;z-index:3">W</span>
+              <span style="position:absolute;bottom:3px;left:50%;transform:translateX(-50%);font-size:8px;color:#fff;font-weight:700;z-index:3">B</span>
+            </div>
+            <canvas id="na-board-canvas" tabindex="0" aria-label="Chess analysis board"></canvas>
+          </div>
+
+          <!-- Game status -->
+          <div id="na-board-status" aria-live="polite">White to move</div>
+
+          <!-- Engine eval info -->
+          <div class="na-engine-row">
+            <label>
+              <input type="checkbox" id="na-engine-checkbox" style="accent-color:var(--brand)">
+              Engine
+            </label>
+            <span id="na-eval-label">—</span>
+            <span id="na-eval-best"></span>
+            <span id="na-eval-depth"></span>
+            <span style="margin-left:auto" id="na-engine-status"></span>
+          </div>
+        </div>
+
+        <!-- Navigation controls -->
+        <div class="na-nav-row" role="group" aria-label="Move navigation">
+          <button id="na-btn-start" class="na-nav-btn" title="Start (Home)" aria-label="Go to start" disabled>⏮</button>
+          <button id="na-btn-prev"  class="na-nav-btn" title="Previous (←)"  aria-label="Previous move" disabled>◀</button>
+          <button id="na-btn-play"  class="na-nav-btn play" title="Auto-play"  aria-label="Auto-play moves">▶</button>
+          <button id="na-btn-next"  class="na-nav-btn" title="Next (→)"      aria-label="Next move" disabled>▶</button>
+          <button id="na-btn-end"   class="na-nav-btn" title="End (End)"     aria-label="Go to end" disabled>⏭</button>
+          <button id="na-btn-flip"  class="na-nav-btn" title="Flip board"    aria-label="Flip board" style="border-radius:8px;width:auto;padding:0 10px;font-size:12px">⇅ Flip</button>
+          <span id="na-move-counter" aria-live="polite"></span>
+        </div>
+        <div style="text-align:center;font-size:10px;color:var(--muted);padding:2px 0 6px">← → arrow keys to step through moves</div>
+
+        <!-- Move list -->
+        <div class="section-head" style="padding-top:4px">
+          <div class="section-title" style="font-size:16px">Moves</div>
+          <span class="pill pill-gray" style="font-size:10px">tap to jump</span>
+        </div>
+        <div class="card card-inner" style="padding:10px 14px;margin-bottom:10px">
+          <div id="na-move-list-wrap">
+            <div id="na-move-list" role="list" aria-label="Move list"></div>
+          </div>
+        </div>
+
+        <!-- Errors / corrections -->
+        <div class="section-head" style="padding-top:4px">
+          <div class="section-title" style="font-size:16px">Parse Report</div>
+        </div>
+        <div class="card card-inner" style="margin-bottom:10px">
+          <div id="na-errors" aria-live="polite"></div>
+        </div>
+
+      </div><!-- /na-analysis-panel -->
+
+    </div><!-- /screen-notation -->
+
   </div><!-- /viewport -->
 
   <!-- Bottom Nav -->
@@ -1260,6 +1627,10 @@ svg.chart { width: 100%; height: 100px; overflow: visible; }
     <button class="nav-btn" data-screen="progress">
       <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       <span class="nav-label">Progress</span>
+    </button>
+    <button class="nav-btn" data-screen="notation">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span class="nav-label">PGN</span>
     </button>
     <button class="nav-btn" data-screen="games">
       <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -1393,9 +1764,9 @@ svg.chart { width: 100%; height: 100px; overflow: visible; }
         </div>
         <div class="playback-controls" id="playback-controls">
           <button class="playback-btn" id="pb-start" title="Go to start">⏮</button>
-          <button class="playback-btn" id="pb-prev"  title="Previous move">◀</button>
+          <button class="playback-btn" id="pb-prev"  title="Previous move">|◀</button>
           <button class="playback-btn active" id="pb-play" title="Play/Pause" aria-label="Play">▶</button>
-          <button class="playback-btn" id="pb-next"  title="Next move" aria-label="Next move">▶</button>
+          <button class="playback-btn" id="pb-next"  title="Next move" aria-label="Next move">▶|</button>
           <button class="playback-btn" id="pb-end"   title="Go to end">⏭</button>
           <span style="flex:1"></span>
           <span class="mono" style="font-size:12px;color:var(--muted)" id="pb-move-counter">Move 0</span>
