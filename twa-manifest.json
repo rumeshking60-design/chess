@@ -7,17 +7,61 @@
   "orientation": "portrait",
   "themeColor": "#8bba5c",
   "navigationColor": "#0e0f0d",
+  "navigationColorDark": "#0e0f0d",
+  "navigationDividerColor": "#161715",
+  "navigationDividerColorDark": "#161715",
   "backgroundColor": "#0e0f0d",
-  "startUrl": "/chess/",
+  "enableNotifications": true,
+  "startUrl": "/chess/?utm_source=twa",
   "iconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512.png",
   "maskableIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512-maskable.png",
+  "monochromeIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512-monochrome.png",
   "splashScreenFadeOutDuration": 400,
   "signingKey": {
     "path": "./android.keystore",
     "alias": "chess-academy"
   },
-  "appVersionCode": 1,
-  "appVersionName": "1.0.0",
+  "appVersionCode": 4,
+  "appVersionName": "4.3.0",
+  "shortcuts": [
+    {
+      "name": "Daily Puzzle",
+      "shortName": "Puzzle",
+      "url": "/chess/?action=puzzle&utm_source=twa_shortcut",
+      "chosenIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-192.png"
+    },
+    {
+      "name": "PGN Analysis",
+      "shortName": "Analysis",
+      "url": "/chess/?screen=notation&utm_source=twa_shortcut",
+      "chosenIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-192.png"
+    },
+    {
+      "name": "Progress",
+      "shortName": "Progress",
+      "url": "/chess/?screen=progress&utm_source=twa_shortcut",
+      "chosenIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
   "webManifestUrl": "https://rumeshking60-design.github.io/chess/manifest.json",
-  "fullScopeUrl": "https://rumeshking60-design.github.io/chess/"
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": {
+      "enabled": false
+    },
+    "playBilling": {
+      "enabled": false
+    }
+  },
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://rumeshking60-design.github.io/chess/",
+  "minSdkVersion": 19,
+  "targetSdkVersion": 34,
+  "additionalTrustedOrigins": []
 }
