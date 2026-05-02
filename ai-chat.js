@@ -1,22 +1,10 @@
 "use strict";
-// ═══════════════════════════════════════════════════════════
-// components/ai-chat.js — AI Coach chat widget
-//
-// Responsibilities:
-//   · Provider badge (which AI is active)
-//   · Quick-action chips
-//   · Send/receive messages, manage chat history
-//   · Thinking animation → replace with response
-//   · Toolbar: clear, export, copy last, inject PGN
-//   · AI Setup modal (provider selection + API key)
-// ═══════════════════════════════════════════════════════════
 
-import { State }                   from "../state.js";
-import { AI, AI_CONFIG, ChatHistory } from "../ai.js";
-import { esc }                     from "../coach.js";
-import { $, Toast, Modal, haptic } from "../ui-core.js";
+import { State }                   from "./state.js";
+import { AI, AI_CONFIG, ChatHistory } from "./ai.js";
+import { esc }                     from "./coach.js";
+import { $, Toast, Modal, haptic } from "./ui-core.js";
 
-// ── Quick-action chips ────────────────────────────────────────
 const QUICK_ACTIONS = [
   { label: "♟ Analyse last game",  msg: "Can you analyse my most recent game and tell me what I could have done better?" },
   { label: "🧩 Give me a puzzle",  msg: "Give me a daily puzzle prescription and explain what tactical patterns I should focus on." },
@@ -26,7 +14,6 @@ const QUICK_ACTIONS = [
   { label: "🎯 Tactical training", msg: "Design a tactical training plan for me based on my weaknesses and current rating." },
 ];
 
-// ── Provider setup instructions ───────────────────────────────
 const PROVIDER_INFO = {
   openrouter: {
     label: "OpenRouter (Recommended — free Llama 3.3 70B)",
@@ -70,7 +57,6 @@ const PROVIDER_INFO = {
   },
 };
 
-// ── Minimal markdown → HTML formatter ─────────────────────────
 function safeFormat(text) {
   return esc(text)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
@@ -83,12 +69,10 @@ function safeFormat(text) {
     .replace(/\n/g, "<br>");
 }
 
-// ── Main export ───────────────────────────────────────────────
 export const AICoach = {
   _history: [],
   _sending: false,
 
-  /** Call once at boot — sets up the whole chat widget. */
   bind() {
     this._history = ChatHistory.load();
     this._renderHistory();
@@ -100,7 +84,6 @@ export const AICoach = {
     if (!this._history.length) this._showWelcome();
   },
 
-  // ── Welcome message ────────────────────────────────────────
   _showWelcome() {
     const { profile: p, games } = State.get();
     const first    = p.fullName?.split(" ")[0] || "there";
@@ -112,10 +95,9 @@ export const AICoach = {
       `You're rated **${p.rating}** with ${gameInfo}.`,
       "I can help with openings, tactics, endgames, game analysis, and training plans.",
       "**Try a quick action below**, or ask me anything!",
-    ].join(" "), /* persist */ false);
+    ].join(" "), false);
   },
 
-  // ── Render persisted history ───────────────────────────────
   _renderHistory() {
     const wrap = $("ai-chat-messages");
     if (!wrap) return;
@@ -124,7 +106,6 @@ export const AICoach = {
     setTimeout(() => { wrap.scrollTop = wrap.scrollHeight; }, 50);
   },
 
-  // ── Provider badge ─────────────────────────────────────────
   _renderProviderBadge() {
     const badge = $("ai-provider-badge");
     if (!badge) return;
@@ -147,7 +128,6 @@ export const AICoach = {
     $("ai-setup-link")?.addEventListener("click", () => Modal.open("ai-setup-modal"));
   },
 
-  // ── Quick-action chips ─────────────────────────────────────
   _renderQuickActions() {
     const host = $("ai-quick-actions");
     if (!host) return;
@@ -166,7 +146,6 @@ export const AICoach = {
     });
   },
 
-  // ── Input row ──────────────────────────────────────────────
   _bindInput() {
     const input   = $("ai-input");
     const sendBtn = $("ai-send-btn");
@@ -184,16 +163,13 @@ export const AICoach = {
     input.addEventListener("keydown", e => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
     });
-    // Auto-grow
     input.addEventListener("input", () => {
       input.style.height = "auto";
       input.style.height = Math.min(input.scrollHeight, 120) + "px";
     });
   },
 
-  // ── Toolbar ────────────────────────────────────────────────
   _bindToolbar() {
-    // Clear
     $("ai-clear-btn")?.addEventListener("click", () => {
       if (!this._history.length || !confirm("Clear chat history?")) return;
       this._history = [];
@@ -204,21 +180,18 @@ export const AICoach = {
       Toast.show("Chat cleared");
     });
 
-    // Export
     $("ai-export-btn")?.addEventListener("click", () => {
       if (!this._history.length) { Toast.show("No chat history to export"); return; }
       ChatHistory.export(this._history);
       Toast.show("Chat exported ✓");
     });
 
-    // Copy last assistant message
     $("ai-copy-btn")?.addEventListener("click", () => {
       const last = [...this._history].reverse().find(h => h.role === "assistant");
       if (!last) { Toast.show("No response to copy"); return; }
       navigator.clipboard?.writeText(last.content)
         .then(() => Toast.show("Copied ✓"))
         .catch(() => {
-          // Legacy fallback
           const ta = Object.assign(document.createElement("textarea"), { value: last.content });
           document.body.appendChild(ta);
           ta.select();
@@ -228,7 +201,6 @@ export const AICoach = {
         });
     });
 
-    // Inject last game PGN
     $("ai-pgn-btn")?.addEventListener("click", () => {
       const g = State.get().games[0];
       if (!g) { Toast.show("No recent games — sync first"); return; }
@@ -243,7 +215,6 @@ export const AICoach = {
     });
   },
 
-  // ── Setup modal ────────────────────────────────────────────
   _bindSetupModal() {
     if (!$("ai-setup-modal")) this._injectSetupModal();
 
@@ -320,7 +291,6 @@ export const AICoach = {
     if (keyField) keyField.style.display = info?.needsKey ? "" : "none";
   },
 
-  // ── Message send / receive ─────────────────────────────────
   async _sendMessage(userMsg) {
     if (this._sending) return;
     this._sending = true;
@@ -341,7 +311,6 @@ export const AICoach = {
     }
   },
 
-  // ── DOM helpers ────────────────────────────────────────────
   _appendMsg(role, text, persist = true) {
     const wrap = $("ai-chat-messages");
     if (!wrap) return;
@@ -402,7 +371,6 @@ export const AICoach = {
   },
 };
 
-// Handle inline "Set up AI" links embedded in formatted responses
 document.addEventListener("click", e => {
   if (e.target?.classList.contains("inline-setup-link")) {
     e.preventDefault();

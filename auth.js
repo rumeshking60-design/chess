@@ -1,27 +1,11 @@
 "use strict";
-// ═══════════════════════════════════════════════════════════
-// core/auth.js — Login gate & session helpers
-//
-// Responsibilities:
-//   · Show/hide login gate vs app shell
-//   · First-time student login flow
-//   · Coach login + student-picker flow
-//   · Logout (student and coach)
-//   · autoDetectLocation wrapper (with 4s timeout)
-// ═══════════════════════════════════════════════════════════
 
-import { State }     from "../state.js";
-import { Coach }     from "../coach.js";
-import { LiveSync }  from "../liveSync.js";
-import { $, $$, Toast, haptic } from "../ui-core.js";
-import { esc }       from "../coach.js";
+import { State }     from "./state.js";
+import { Coach }     from "./coach.js";
+import { LiveSync }  from "./liveSync.js";
+import { $, $$, Toast, haptic } from "./ui-core.js";
+import { esc }       from "./coach.js";
 
-// ── Location detection ──────────────────────────────────────
-/**
- * Attempt to resolve the user's city via ipapi.co.
- * Aborts after 4 s to keep the login flow snappy.
- * @returns {Promise<string|null>}
- */
 export async function autoDetectLocation() {
   try {
     const ctrl  = new AbortController();
@@ -42,7 +26,6 @@ export async function autoDetectLocation() {
   }
 }
 
-// ── DOM helpers ─────────────────────────────────────────────
 function showLoginGate() {
   const gate = $("login-gate");
   const app  = $("app-shell");
@@ -57,7 +40,6 @@ function showApp() {
   if (app)  app.style.display  = "";
 }
 
-// ── Coach student-picker (shown after coach login) ──────────
 function renderCoachStudentPicker() {
   const panelLogin    = $("login-coach-panel");
   const panelStudents = $("login-coach-students-panel");
@@ -110,16 +92,11 @@ function renderCoachStudentPicker() {
   panelStudents.classList.add("active");
 }
 
-// ── Public API ───────────────────────────────────────────────
 export const Auth = {
   isLoggedIn: () => !!State.get().loginState?.loggedIn,
   showLoginGate,
   showApp,
 
-  /**
-   * Logout — clears coach and login session state,
-   * returns user to the login gate without a full reload.
-   */
   logout() {
     State.setCoachAuth({ loggedIn: false, role: "student", name: "" });
     State.setLoginState({ loggedIn: false, role: "student" });
@@ -127,15 +104,7 @@ export const Auth = {
     showLoginGate();
   },
 
-  /**
-   * Wire up all login-gate interactive elements.
-   * `onSuccess` is called with the resolved userId after a
-   * successful login so the caller can boot the app.
-   *
-   * @param {{ onStudentLogin: Function, onCoachStudentSelect: Function }} callbacks
-   */
   bindLoginGate({ onStudentLogin, onCoachStudentSelect }) {
-    // ── Tab switcher ──────────────────────────────────────
     const tabs          = $$("[data-login-tab]");
     const studentPanel  = $("login-student-panel");
     const coachPanel    = $("login-coach-panel");
@@ -153,7 +122,6 @@ export const Auth = {
       })
     );
 
-    // ── Student Continue & Sync ───────────────────────────
     $("student-login-continue-btn")?.addEventListener("click", async () => {
       const fullName = $("login-student-name")?.value.trim()     || "";
       const chesscom = $("login-student-chesscom")?.value.trim() || "";
@@ -183,7 +151,6 @@ export const Auth = {
           lichess,
         });
 
-        // Auto-detect location for new profiles (non-blocking after login)
         const currentLoc = State.get().profile?.location || "";
         const isSeedLoc  = !currentLoc
           || currentLoc === "Noida, UP"
@@ -208,7 +175,7 @@ export const Auth = {
             const b = $("sync-data-btn");
             if (b) { b.style.opacity = on ? "0.6" : "1"; b.style.pointerEvents = on ? "none" : ""; }
           },
-        }).catch(() => {}); // sync errors are non-fatal at login
+        }).catch(() => {});
 
         Toast.show("✅ Ready!", 1400);
         showApp();
@@ -218,7 +185,6 @@ export const Auth = {
       }
     });
 
-    // ── Coach login ───────────────────────────────────────
     $("coach-login-continue-btn")?.addEventListener("click", async () => {
       const email    = $("coach-login-email")?.value.trim().toLowerCase() || "";
       const password = $("coach-login-password")?.value || "";
@@ -244,7 +210,6 @@ export const Auth = {
       }
     });
 
-    // ── Coach student selection ───────────────────────────
     $("coach-student-logout-btn")?.addEventListener("click", () => {
       State.setCoachAuth({ loggedIn: false, role: "student", name: "" });
       State.setLoginState({ loggedIn: false, role: "student" });

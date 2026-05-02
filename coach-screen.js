@@ -1,22 +1,11 @@
 "use strict";
-// ═══════════════════════════════════════════════════════════
-// screens/coach-screen.js — Coach panel, roadmap, viewing pills
-//
-// Responsibilities:
-//   · Render the roadmap milestone list
-//   · Bind coach-screen event delegation (login, feedback, assignments)
-//   · Render/update coach header (name, tag, avatar initial)
-//   · Render "viewing as student" pills shown in coach mode
-// ═══════════════════════════════════════════════════════════
 
-import { State }   from "../state.js";
-import { Coach, esc, tmpl as coachTmpl } from "../coach.js";
-import { $, Toast, haptic, setText, updateNavBadge } from "../ui-core.js";
+import { State }   from "./state.js";
+import { Coach, esc, tmpl as coachTmpl } from "./coach.js";
+import { $, Toast, haptic, setText, updateNavBadge } from "./ui-core.js";
 
-// ── Helpers ───────────────────────────────────────────────────
 const isCoachViewing = () => State.get().loginState?.role === "coach";
 
-// ── Roadmap milestones ────────────────────────────────────────
 const MILESTONES = [
   { rating: 1600, label: "1600 Club",        icon: "⭐", detail: "Solid opening knowledge" },
   { rating: 1700, label: "1700 Club",        icon: "🎯", detail: "Tactical vision & endgame basics" },
@@ -55,7 +44,6 @@ export function renderRoadmap() {
   }).join("");
 }
 
-// ── Coach header ──────────────────────────────────────────────
 export function updateCoachHeader() {
   const st = State.get();
   const loggedIn = st.coachAuth?.loggedIn;
@@ -74,7 +62,6 @@ export function updateCoachHeader() {
   if (av) av.textContent = (String(name).trim()[0] || "C").toUpperCase();
 }
 
-// ── Viewing pills ─────────────────────────────────────────────
 export function updateViewingPills() {
   const st   = State.get();
   const name = st.profile?.fullName || st.profile?.chesscom || st.currentUserId || "Student";
@@ -87,23 +74,15 @@ export function updateViewingPills() {
     });
 }
 
-// ── Coach screen event bindings ───────────────────────────────
-/**
- * @param {Function} onCoachAction - callback fired after any coach action
- *   so parent screens (home plan, nav badge) can refresh.
- */
 export function bindCoachScreen(onCoachAction) {
   const root = $("coach-notes-list");
   if (!root) return;
 
-  // Initial render
   Coach.renderCoachPanel(root, onCoachAction);
 
-  // Single delegated listener for the whole panel
   root.addEventListener("click", async e => {
     const id = e.target?.id;
 
-    // ── Login ──────────────────────────────────────────────
     if (id === "coach-login-btn") {
       const ok    = await Coach.login(
         $("coach-email")?.value    || "",
@@ -123,7 +102,6 @@ export function bindCoachScreen(onCoachAction) {
       return;
     }
 
-    // ── Logout ─────────────────────────────────────────────
     if (id === "coach-logout-btn") {
       Coach.logout();
       Toast.show("Logged out.");
@@ -131,7 +109,6 @@ export function bindCoachScreen(onCoachAction) {
       return;
     }
 
-    // ── Save feedback ──────────────────────────────────────
     if (id === "coach-save-feedback") {
       const result = Coach.addFeedback({
         gameId:   $("coach-game-id")?.value,
@@ -143,12 +120,10 @@ export function bindCoachScreen(onCoachAction) {
       haptic(15);
       Toast.show("💾 Feedback saved.");
       Coach.renderCoachPanel(root, onCoachAction);
-      // Refresh progress insights with new feedback data
-      import("../progress.js").then(m => m.Progress?.render()).catch(() => {});
+      import("./progress.js").then(m => m.Progress?.render()).catch(() => {});
       return;
     }
 
-    // ── Add assignment ─────────────────────────────────────
     if (id === "coach-add-assignment") {
       const result = Coach.addAssignment({
         title: $("assign-title")?.value || "",
@@ -159,12 +134,11 @@ export function bindCoachScreen(onCoachAction) {
       haptic(15);
       Toast.show("📋 Assignment added.");
       Coach.renderCoachPanel(root, onCoachAction);
-      import("../home.js").then(m => m.Home?.renderTodayPlan()).catch(() => {});
+      import("./home.js").then(m => m.Home?.renderTodayPlan()).catch(() => {});
       updateNavBadge();
     }
   });
 
-  // "Request Review" button lives outside the delegated panel
   document.querySelector("[data-action='requestFeedback']")
     ?.addEventListener("click", () => Toast.show("📬 Review request sent to coach!"));
 }
