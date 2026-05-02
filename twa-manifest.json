@@ -1,67 +1,23 @@
 {
   "packageId": "com.chessacademy.app",
-  "host": "your-domain.com",
+  "host": "rumeshking60-design.github.io",
   "name": "Chess Academy",
   "launcherName": "Chess Academy",
   "display": "standalone",
   "orientation": "portrait",
   "themeColor": "#8bba5c",
   "navigationColor": "#0e0f0d",
-  "navigationColorDark": "#0e0f0d",
-  "navigationDividerColor": "#161715",
-  "navigationDividerColorDark": "#161715",
   "backgroundColor": "#0e0f0d",
-  "enableNotifications": true,
-  "startUrl": "/?utm_source=twa",
-  "iconUrl": "https://your-domain.com/icons/icon-512.png",
-  "maskableIconUrl": "https://your-domain.com/icons/icon-512-maskable.png",
-  "monochromeIconUrl": "https://your-domain.com/icons/icon-512-monochrome.png",
+  "startUrl": "/chess/?utm_source=twa",
+  "iconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512.png",
+  "maskableIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512-maskable.png",
   "splashScreenFadeOutDuration": 400,
   "signingKey": {
     "path": "./android.keystore",
     "alias": "chess-academy"
   },
-  "appVersionCode": 4,
-  "appVersionName": "4.3.0",
-  "shortcuts": [
-    {
-      "name": "Daily Puzzle",
-      "shortName": "Puzzle",
-      "url": "/?action=puzzle&utm_source=twa_shortcut",
-      "chosenIconUrl": "https://your-domain.com/icons/icon-192.png"
-    },
-    {
-      "name": "PGN Analysis",
-      "shortName": "Analysis",
-      "url": "/?screen=notation&utm_source=twa_shortcut",
-      "chosenIconUrl": "https://your-domain.com/icons/icon-192.png"
-    },
-    {
-      "name": "Progress",
-      "shortName": "Progress",
-      "url": "/?screen=progress&utm_source=twa_shortcut",
-      "chosenIconUrl": "https://your-domain.com/icons/icon-192.png"
-    }
-  ],
-  "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://your-domain.com/manifest.json",
-  "fallbackType": "customtabs",
-  "features": {
-    "locationDelegation": {
-      "enabled": false
-    },
-    "playBilling": {
-      "enabled": false
-    }
-  },
-  "alphaDependencies": {
-    "enabled": false
-  },
-  "enableSiteSettingsShortcut": true,
-  "isChromeOSOnly": false,
-  "isMetaQuest": false,
-  "fullScopeUrl": "https://your-domain.com/",
-  "minSdkVersion": 19,
-  "targetSdkVersion": 34,
-  "additionalTrustedOrigins": []
+  "appVersionCode": 1,
+  "appVersionName": "1.0.0",
+  "webManifestUrl": "https://rumeshking60-design.github.io/chess/manifest.json",
+  "fullScopeUrl": "https://rumeshking60-design.github.io/chess/"
 }
