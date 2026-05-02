@@ -8,7 +8,7 @@
   "themeColor": "#8bba5c",
   "navigationColor": "#0e0f0d",
   "backgroundColor": "#0e0f0d",
-  "startUrl": "/chess/?utm_source=twa",
+  "startUrl": "/chess/",
   "iconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512.png",
   "maskableIconUrl": "https://rumeshking60-design.github.io/chess/icons/icon-512-maskable.png",
   "splashScreenFadeOutDuration": 400,
